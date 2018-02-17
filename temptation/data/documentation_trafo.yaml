@@ -1,0 +1,42 @@
+id: &id documenter
+name: &name Documenter
+title: &title >
+  Transformator for auto-generating documentation
+  from `ynot` transformator files.
+description: &description |-
+  You can create documentation by calling
+  `ynot -t my-transformator.ynot --doc=my-transformator.md`.
+  This will validate your transformator and create documentation for it.
+actions: &actions
+- print: '###### @y!{id}'
+- print: "# @y!{name}"
+- print: "---"
+- print: '- [Samples](#samples)'
+- for:
+    path: 'samples.*'
+    actions:
+    - print: '  - [@y!{title}](#@y!{id})'
+- print: "- [@y!{id}](#transformator)\n"
+- print: "---"
+- print: "## @y!{title}"
+- print: "@y!{description}"
+- print: "## Samples"
+- for:
+    path: 'samples.*'
+    actions:
+    - print: '###### @y!{id}'
+    - print: '### @y!{title}'
+    - print: '@y!{description}'
+    - print: '#### Input'
+    - print: "```yaml"
+    - print_map:
+        input: "@y!{input}"
+    - print: "```"
+    - print: '#### Output'
+    - print: "```\n@y!{output}\n```"
+- print: "## Transformator"
+#- print: "@y!{prolog}"
+- print: "```yaml"
+- print:
+- print: "```"
+#- print: "@y!{epilog}"
