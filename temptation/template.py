@@ -4,7 +4,7 @@ import logging
 import re
 from collections import OrderedDict
 
-import resolvers
+import default_resolvers
 
 logging.basicConfig()
 logger = logging.getLogger(__name__)
@@ -23,14 +23,10 @@ _templateregex = r"""
     )
 """
 
-class Resolver:
-    r"""
-    >>> Resolver('dictmatcher', tag=r'\$',   bound=(r'\{', r'\}'), samples=['${}', 'hello ${}'],  processor=resolvers.resolve_dict)
-    {id: 'dictmatcher', tag: r'\$', bound: '(u'\\{', u'\\}')', samples: [u'${}', u'hello ${}'], processor: resolve_dict}
-    """
+class Matcher:
     def __init__(self, id, **kwargs):
         # TODO: Make this cleaner by making it more verbose (no **kwargs)
-        self.__dict__ = dict({"id": id, "tag": r'\$', "bound": ('{', '}'), "samples": [], "processor": resolvers.dont_resolve}, **kwargs)
+        self.__dict__ = dict({"id": id, "tag": r'\$', "bound": ('{', '}'), "samples": [], "processor": default_resolvers.dont_resolve}, **kwargs)
         # derivates:
         self.expression = r"([^{bound[0]}{bound[1]}] | \\{bound[0]} | \\{bound[1]})*".format(bound=self.bound)
         self.regex = _templateregex.format(**self.__dict__)
@@ -38,63 +34,49 @@ class Resolver:
     def __repr__(self):
         return "{id: '%s', tag: r'%s', bound: '%s', samples: %s, processor: %s}" % (self.id, self.tag, self.bound, self.samples, self.processor.__name__)
 
-class Resolvers:
-    def __init__(self):
-        self._resolvers = OrderedDict()
-        self.add(Resolver('dictmatcher',      tag=r'\$',   bound=(r'\{', r'\}'), samples=['${}', 'hello ${}'],  processor=resolvers.resolve_dict))
-        self.add(Resolver('evalmatcher',      tag=r'\!',   bound=(r'\{', r'\}'), samples=['!{}'],               processor=resolvers.resolve_eval))
-        self.add(Resolver('pathmatcher',      tag=r'\@',   bound=(r'\{', r'\}'), samples=['@{}'],               processor=resolvers.resolve_path_singlematch))
-        self.add(Resolver('pathmultimatcher', tag=r'\@\*', bound=(r'\{', r'\}'), samples=['@*{}'],              processor=resolvers.resolve_path_multimatch))
-    # TODO: add methods for replacing and/or deleting resolver
-    def add(self, resolver):
-        # TODO: Add split samples to matching and non-matching
-        # TODO: Consider initializing Template without resolvers and using default resolvers only as a choice for easily being added
-        r"""
-        >>> Template("${hello} ${name}").resolve({"hello": "Hello", "name": "world"})
-        u'Hello world'
-        """
-        if self._resolvers.get("id"):
-            # TODO: raise more specific exceptions
-            # TODO: consider allowing to update existing resolver
-            raise Exception("Attempt to overwrite existing resolver '%s': '%s'" % (resolver["id"], self._resolvers.get("id")))
-        self._verify_resolver(resolver)
-        self._resolvers[resolver.id] = resolver
-        return self
-    def remove(self, id):
-        del(self._resolvers[id])
-        return self
-    def _verify_resolver(self, resolver):
-        for id, competitor in self._resolvers.iteritems():
-            for sample in resolver.samples:
-                if not resolver.pattern.findall(sample):
-                    raise Exception("'%s' didn't match '%s'" % (sample, resolver.regex))
-                # TODO: Check for regex intersection instead. E.g. https://github.com/qntm/greenery (unfortunately python3 only)
-                if competitor.pattern.findall(sample):
-                    raise Exception("sample '%s' for resolver with id '%s' also matches resolver with id '%s'" % (sample, resolver.id, competitor.id))
-            for sample in competitor.samples:
-                if resolver.pattern.findall(sample):
-                    raise Exception("sample '%s' for resolver '%s' also matches resolver '%s'" % (sample, resolver.id, competitor.id))
-
 class Template:
-    escaped_backslash_pattern = re.compile('\\\\')
-    def __init__(self, template, resolvers=Resolvers()):
+    _default_matchers = OrderedDict([
+        ("dictmatcher",      Matcher('dictmatcher',      tag=r'\$',   bound=(r'\{', r'\}'), samples=['${}', 'hello ${}'],  processor=default_resolvers.resolve_dict)),
+        ("evalmatcher",      Matcher('evalmatcher',      tag=r'\!',   bound=(r'\{', r'\}'), samples=['!{}'],               processor=default_resolvers.resolve_eval)),
+        ("pathmatcher",      Matcher('pathmatcher',      tag=r'\@',   bound=(r'\{', r'\}'), samples=['@{}'],               processor=default_resolvers.resolve_path_singlematch)),
+        ("pathmultimatcher", Matcher('pathmultimatcher', tag=r'\@\*', bound=(r'\{', r'\}'), samples=['@*{}'],              processor=default_resolvers.resolve_path_multimatch)),]
+    )
+    def __init__(self, template, matchers=_default_matchers):
         self.template = template
-        self.resolvers = resolvers._resolvers
+        self.matchers = matchers.copy() if matchers else OrderedDict()
     def resolve(self, context=None):
         result = self.template
-        for id, resolver in self.resolvers.iteritems():
+        for id, matcher in self.matchers.iteritems():
             def process(match):
                 expression = match.group("expression")
                 if match.group("escape"):
                     return match.group("unescaped")
                 elif expression is not None:
-                    return resolver.processor(expression=expression, context=context, match=match)
+                    return matcher.processor(expression=expression, context=context, match=match)
                 else:
                     raise Exception("unexpected match result: %s" % (match.group()))
-            result = resolver.pattern.sub(process, result)
+            result = matcher.pattern.sub(process, result)
         result = result.replace("\\\\", "\\")
         return result
-
+    def add_matcher(self, matcher):
+        # TODO: Add split samples to matching and non-matching
+        self._verify_matcher(matcher)
+        if self.matchers.get(matcher.id):
+            self.matchers[matcher.id].update(matcher)
+        else:
+            self.matchers[matcher.id] = matcher
+        return self
+    def _verify_matcher(self, matcher):
+        # TODO: Check for regex intersection instead of sample intersection. E.g. https://github.com/qntm/greenery (unfortunately python3 only)
+        for id, competitor in self.matchers.iteritems():
+            for sample in matcher.samples:
+                if not matcher.pattern.findall(sample):
+                    raise Exception("'%s' didn't match '%s'" % (sample, matcher.regex))
+                if competitor.pattern.findall(sample):
+                    raise Exception("sample '%s' for matcher '%s' also matches matcher '%s'" % (sample, matcher.id, competitor.id))
+            for sample in competitor.samples:
+                if matcher.pattern.findall(sample):
+                    raise Exception("sample '%s' for matcher '%s' also matches matcher '%s'" % (sample, competitor.id, matcher.id))
 
 if __name__ == "__main__":
     import doctest

@@ -1,13 +1,7 @@
 import unittest
 
 from context import temptation
-from temptation import Template, Resolvers, Resolver
-
-# Custom resolvers
-def resolve_foo(expression, match, context):
-    return "foofoo"
-def resolve_bar(expression, match, context):
-    return "barbar"
+from temptation import Template, Matcher, default_resolvers
 
 # Test class
 class TestTemplate(unittest.TestCase):
@@ -78,15 +72,38 @@ class TestTemplate(unittest.TestCase):
         expected = "Hello 12"
         self.assertEqual(Template(template).resolve(data), expected)
 
-    def test_add_resolvers(self):
-        template = "Hello $foo{} and $bar{}"
-        expected = "Hello foofoo and barbar"
-        resolvers = Resolvers().add(
-            Resolver("foomatcher", tag=r"\$foo", samples=["$foo{}"], processor=resolve_foo)).add(
-            Resolver("barmatcher", tag=r"\$bar", samples=["$bar{}"], processor=resolve_bar))
-        self.assertEqual(Template(template, resolvers).resolve(), expected)
+    def test_add_matchers(self):
+        def resolve_foo(expression, match, context):
+            return "foo-{0}".format(expression)
+        template = "Hello $foo{something} and $bar{something_else}"
+        expected = "Hello foo-something and something_else-bar"
+        self.assertEqual(
+            Template(template).add_matcher(
+                Matcher("foomatcher", tag=r"\$foo", samples=["$foo{}"], processor=resolve_foo)).add_matcher(
+                Matcher("barmatcher", tag=r"\$bar", samples=["$bar{}"], processor=lambda expression, match, context: "{0}-bar".format(expression)))
+            .resolve(), expected)
 
-    #TODO: Add unit tests for conflicting custom resolver
+    def test_set_matchers(self):
+        def resolve_foo(expression, match, context):
+            return "foo-{0}".format(expression)
+        template = "Hello $foo{something} and $bar{something_else}"
+        expected = "Hello foo-something and something_else-bar"
+        self.assertEqual(
+            Template(template, matchers=None).add_matcher(
+                Matcher("normalmatcher", tag=r"\$", samples=["${bla}"],   processor=default_resolvers.resolve_dict)).add_matcher(
+                Matcher("foomatcher", tag=r"\$foo", samples=["$foo{}"], processor=resolve_foo)).add_matcher(
+                Matcher("barmatcher", tag=r"\$bar", samples=["$bar{}"], processor=lambda expression, match, context: "{0}-bar".format(expression)))
+            .resolve(), expected)
+
+    def test_set_matchers_conflicting(self):
+        foomatcher = Matcher("foomatcher", tag=r"\$x", samples=["$x{whatever}"])
+        barmatcher = Matcher("barmatcher", tag=r"\$xx*", samples=["$xxx{whatever}"])
+        template = Template("", matchers=None)
+        template.add_matcher(foomatcher)
+        with self.assertRaises(Exception) as exception_context:
+            template.add_matcher(barmatcher)
+
+    #TODO: Add unit tests for conflicting custom matcher
 
 
 if __name__ == "__main__":

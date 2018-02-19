@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 from template import *
 
-__version__ = '0.1.0'
+__version__ = '0.1.1'
 
 def orderedDict_constructor(loader, node, deep=False):
     data = OrderedDict()

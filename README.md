@@ -20,7 +20,7 @@ Rather than always expecting key-value pairs as input _temptation_ provides the 
 
 ## Extensibility
 
-The regular-expression based grammar can be easily extended or customized by adding custom resolvers.
+The regular-expression based grammar can easily be extended or customized by adding custom matchers.
 
 ## MVC-based templating
 
@@ -217,7 +217,7 @@ u"Hello ['first item', 'second item']"
 
 The python-evaluation resolution allows to expand a _temptation_ expression to the result of any python expression.
 
-Currently the pre-defined evaluation expression is limited to the use of modules that are imported in the `template.resolvers` module. It's planned to provide a more flexible solution for importing additional modules to be accessible from evaluation expressions.
+Currently the pre-defined evaluation expression is limited to the use of modules that are imported in the `template.default_resolvers` module. It's planned to provide a more flexible solution for importing additional modules to be accessible from evaluation expressions.
 
 ```python
 >>> Template(u"Hello !{7 + 5}").resolve()
@@ -227,50 +227,58 @@ u'Hello 12'
 >>> Template(u"Hello !{context['values'][2] + context['values'][3]}").resolve(context)
 u'Hello 12'
 
+>>> template = """${greeting} ${name}
+... This is a very personal letter. To emphasize how well I know you
+... I add best regards to your !{len(context['children'])} children !{", ".join([child for child in context["children"]])}.
+... """
+>>> context = [{"name": "Mr. Template", "greeting": "Hello", "children": ["Jeff", "Henriette", "Mark"]}, {"name": "Mrs. Temptation", "greeting": "Dear", "children": []}]
+>>> for item in context:
+...     Template(template).resolve(item)
+u'Hello Mr. Template\nThis is a very personal letter. To emphasize how well I know you\nI add best regards to your 3 children Jeff, Henriette, Mark.\n'
+u'Dear Mrs. Temptation\nThis is a very personal letter. To emphasize how well I know you\nI add best regards to your 0 children .\n'
+
 ```
 
-# Adding your own resolvers
+# Adding your own matchers
 
-You can extend _temptation_'s capabilities by implementing your own resolvers.
+You can extend _temptation_'s capabilities by implementing your own matchers.
 
 To do so you must first import the `Resolvers` class:
 
-## Import Resolvers
+## Import Matcher
 
 ```python
->>> from temptation import Resolvers, Resolver
+>>> from temptation import Matcher
 
 ```
 
-## Custom resolver sample
+## Custom matcher sample
 
 ```python
 >>> def resolve_foo(expression, match, context):
-...     return "foofoo"
->>> def resolve_bar(expression, match, context):
-...     return "barbar"
->>> resolvers = Resolvers().add(
-...     Resolver("foomatcher", tag=r"\$foo", samples=["$foo{}"], processor=resolve_foo)).add(
-...     Resolver("barmatcher", tag=r"\$bar", samples=["$bar{}"], processor=resolve_bar))
->>> Template("Hello $foo{} and $bar{}", resolvers).resolve()
-u'Hello foofoo and barbar'
+...     return "foo-{0}".format(expression)
+
+>>> foomatcher = Matcher("foomatcher", tag=r"\$foo", samples=["$foo{}"], processor=resolve_foo)
+>>> barmatcher = Matcher("barmatcher", tag=r"\$bar", samples=["$bar{}"], processor=lambda expression, match, context: "{0}-bar".format(expression))
+
+>>> template = "Hello $foo{something} and $bar{something_else}"
+>>> Template(template).add_matcher(foomatcher).add_matcher(barmatcher).resolve()
+u'Hello foo-something and something_else-bar'
 
 ```
 
 ## Resolvers are validated against samples
 
-It is also ensured that samples don't match with other resolvers. This is an attempt to help avoiding ambiguities (but obviously doesn't guarantee that there is no intersection between regular expressions of different resolvers).
+It is also ensured that samples don't match with other matchers. This is an attempt to help avoiding ambiguities (but obviously doesn't guarantee that there is no intersection between regular expressions of different matchers).
 
 ```python
->>> def resolve_foo(expression, match, context):
-...     return "foofoo"
->>> def resolve_bar(expression, match, context):
-...     return "barbar"
->>> resolvers = Resolvers().add(
-...     Resolver("foomatcher", tag=r"\$x", samples=["$x{whatever}"], processor=resolve_foo)).add(
-...     Resolver("barmatcher", tag=r"\$xx*", samples=["$xxx{whatever}"], processor=resolve_bar))
+>>> foomatcher = Matcher("foomatcher", tag=r"\$x", samples=["$x{whatever}"])
+>>> barmatcher = Matcher("barmatcher", tag=r"\$xx*", samples=["$xxx{whatever}"])
+
+>>> template = Template("").add_matcher(foomatcher)
+>>> template.add_matcher(barmatcher)
 Traceback (most recent call last):
  ...
-Exception: sample '$x{whatever}' for resolver 'barmatcher' also matches resolver 'foomatcher'
+Exception: sample '$x{whatever}' for matcher 'foomatcher' also matches matcher 'barmatcher'
 
 ```

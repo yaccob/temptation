@@ -2,6 +2,7 @@
 *.rst
 *.pyc
 tmp*
+README.html
 *.egg-info
 build
 dist
